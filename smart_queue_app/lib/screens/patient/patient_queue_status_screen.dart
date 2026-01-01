@@ -125,12 +125,86 @@
 
 
 
+// import 'package:flutter/material.dart';
+// import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'package:firebase_auth/firebase_auth.dart';
+
+// class PatientQueueStatus extends StatelessWidget {
+//   final String doctorUid;
+//   const PatientQueueStatus({super.key, required this.doctorUid});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     final patientUid = FirebaseAuth.instance.currentUser!.uid;
+
+//     return Scaffold(
+//       appBar: AppBar(title: const Text("My Queue Status")),
+//       body: StreamBuilder<QuerySnapshot>(
+//         stream: FirebaseFirestore.instance
+//             .collection('appointments')
+//             .where('doctorUid', isEqualTo: doctorUid)
+//             .where('patientUid', isEqualTo: patientUid)
+//             .where('status', isEqualTo: 'waiting')
+//             .snapshots(),
+//         builder: (context, snapshot) {
+//           if (snapshot.connectionState == ConnectionState.waiting) {
+//             return const Center(child: CircularProgressIndicator());
+//           }
+
+//           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+//             return const Center(
+//               child: Text("No queue data available"),
+//             );
+//           }
+
+//           final data =
+//               snapshot.data!.docs.first.data() as Map<String, dynamic>;
+
+//           return Center(
+//             child: Card(
+//               margin: const EdgeInsets.all(20),
+//               child: Padding(
+//                 padding: const EdgeInsets.all(20),
+//                 child: Column(
+//                   mainAxisSize: MainAxisSize.min,
+//                   children: [
+//                     const Text(
+//                       "Your Queue Number",
+//                       style:
+//                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+//                     ),
+//                     const SizedBox(height: 15),
+//                     Text(
+//                       data['queueNumber'].toString(),
+//                       style: const TextStyle(
+//                         fontSize: 40,
+//                         color: Colors.green,
+//                         fontWeight: FontWeight.bold,
+//                       ),
+//                     ),
+//                     const SizedBox(height: 10),
+//                     Text("Slot: ${data['slot']}"),
+//                   ],
+//                 ),
+//               ),
+//             ),
+//           );
+//         },
+//       ),
+//     );
+//   }
+// }
+
+
+
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class PatientQueueStatus extends StatelessWidget {
   final String doctorUid;
+
   const PatientQueueStatus({super.key, required this.doctorUid});
 
   @override
@@ -143,47 +217,77 @@ class PatientQueueStatus extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('appointments')
             .where('doctorUid', isEqualTo: doctorUid)
-            .where('patientUid', isEqualTo: patientUid)
-            .where('status', isEqualTo: 'waiting')
+            .where('status', whereIn: ['waiting', 'consulting'])
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text("No queue data available"));
+          }
+
+          // 🔹 Sort queue by queueNumber
+          final queue = snapshot.data!.docs.toList()
+            ..sort((a, b) =>
+                (a['queueNumber'] as int)
+                    .compareTo(b['queueNumber'] as int));
+
+          // 🔹 Find patient index
+          final index =
+              queue.indexWhere((doc) => doc['patientUid'] == patientUid);
+
+          if (index == -1) {
             return const Center(
-              child: Text("No queue data available"),
+              child: Text("You are not in the queue"),
             );
           }
 
-          final data =
-              snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          final position = index + 1;
+          final beforeCount = index;
 
           return Center(
             child: Card(
+              elevation: 5,
               margin: const EdgeInsets.all(20),
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(25),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      "Your Queue Number",
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 15),
                     Text(
-                      data['queueNumber'].toString(),
+                      "Your Queue Position",
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 🔥 MAIN DISPLAY
+                    Text(
+                      "#$position",
                       style: const TextStyle(
-                        fontSize: 40,
-                        color: Colors.green,
+                        fontSize: 50,
                         fontWeight: FontWeight.bold,
+                        color: Colors.blue,
                       ),
                     ),
+
                     const SizedBox(height: 10),
-                    Text("Slot: ${data['slot']}"),
+
+                    if (beforeCount > 0)
+                      Text(
+                        "$beforeCount patient(s) before you",
+                        style: const TextStyle(fontSize: 16),
+                      )
+                    else
+                      const Text(
+                        "You are next 🔔",
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -194,6 +298,4 @@ class PatientQueueStatus extends StatelessWidget {
     );
   }
 }
-
-
 

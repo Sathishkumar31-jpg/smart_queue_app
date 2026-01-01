@@ -8,12 +8,10 @@ class BookAppointmentScreen extends StatefulWidget {
   const BookAppointmentScreen({super.key, required this.doctorUid});
 
   @override
-  State<BookAppointmentScreen> createState() =>
-      _BookAppointmentScreenState();
+  State<BookAppointmentScreen> createState() => _BookAppointmentScreenState();
 }
 
-class _BookAppointmentScreenState
-    extends State<BookAppointmentScreen> {
+class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
   String? selectedSlot;
   bool loading = false;
 
@@ -27,8 +25,7 @@ class _BookAppointmentScreenState
             .doc(widget.doctorUid)
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState ==
-              ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -55,8 +52,7 @@ class _BookAppointmentScreenState
               const SizedBox(height: 20),
               const Text(
                 "Select Time Slot",
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
 
@@ -85,11 +81,10 @@ class _BookAppointmentScreenState
                       ? null
                       : () => bookAppointment(context),
                   child: loading
-                      ? const CircularProgressIndicator(
-                          color: Colors.white)
+                      ? const CircularProgressIndicator(color: Colors.white)
                       : const Text("Confirm Appointment"),
                 ),
-              )
+              ),
             ],
           );
         },
@@ -103,17 +98,43 @@ class _BookAppointmentScreenState
 
     try {
       final user = FirebaseAuth.instance.currentUser!;
-      final doctorQueueRef = FirebaseFirestore.instance
+      final firestore = FirebaseFirestore.instance;
+
+      final availabilityRef = firestore
+          .collection('availability')
+          .doc(widget.doctorUid);
+
+      final doctorQueueRef = firestore
           .collection('doctor_queue')
           .doc(widget.doctorUid);
 
-      int queueNumber = await FirebaseFirestore.instance
-          .runTransaction((transaction) async {
-        final snapshot = await transaction.get(doctorQueueRef);
+      int queueNumber = await firestore.runTransaction((transaction) async {
+        // 🔹 GET AVAILABILITY
+        final availabilitySnap = await transaction.get(availabilityRef);
 
-        int lastQueue = snapshot.exists
-            ? snapshot.get('lastQueue')
-            : 0;
+        if (!availabilitySnap.exists) {
+          throw "Doctor availability not found";
+        }
+
+        List slots = List.from(availabilitySnap.get('slots') ?? []);
+
+        if (!slots.contains(selectedSlot)) {
+          throw "Selected slot already booked";
+        }
+
+        // 🔒 REMOVE BOOKED SLOT
+        transaction.update(
+          FirebaseFirestore.instance
+              .collection('availability')
+              .doc(widget.doctorUid),
+          {
+            'slots': FieldValue.arrayRemove([selectedSlot]),
+          },
+        );
+
+        // 🔹 QUEUE LOGIC
+        final queueSnap = await transaction.get(doctorQueueRef);
+        int lastQueue = queueSnap.exists ? queueSnap.get('lastQueue') : 0;
 
         int newQueue = lastQueue + 1;
 
@@ -121,19 +142,15 @@ class _BookAppointmentScreenState
           'lastQueue': newQueue,
         }, SetOptions(merge: true));
 
-        transaction.set(
-          FirebaseFirestore.instance
-              .collection('appointments')
-              .doc(),
-          {
-            'doctorUid': widget.doctorUid,
-            'patientUid': user.uid,
-            'slot': selectedSlot,
-            'queueNumber': newQueue,
-            'status': 'waiting',
-            'createdAt': FieldValue.serverTimestamp(),
-          },
-        );
+        // 🔹 CREATE APPOINTMENT
+        transaction.set(firestore.collection('appointments').doc(), {
+          'doctorUid': widget.doctorUid,
+          'patientUid': user.uid,
+          'slot': selectedSlot,
+          'queueNumber': newQueue,
+          'status': 'waiting',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
 
         return newQueue;
       });
@@ -144,8 +161,7 @@ class _BookAppointmentScreenState
         context: context,
         builder: (_) => AlertDialog(
           title: const Text("Appointment Confirmed"),
-          content:
-              Text("Your Queue Number is $queueNumber"),
+          content: Text("Slot: $selectedSlot\nYour Queue Number: $queueNumber"),
           actions: [
             TextButton(
               onPressed: () {
@@ -153,23 +169,14 @@ class _BookAppointmentScreenState
                 Navigator.pop(context);
               },
               child: const Text("OK"),
-            )
+            ),
           ],
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$e")));
     } finally {
       setState(() => loading = false);
     }
   }
 }
-
-
-
-
-
-
-
